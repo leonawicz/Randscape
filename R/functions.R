@@ -76,7 +76,7 @@ setSpruceTypesByRep <- function(k, i, r, slope, aspect,
 }
 
 # Recursive fire spread function
-spread <- function(x, x.hold=x, sens, v, tr.br, j=1, weaken=TRUE, ...){
+.spreadSimultaneous <- function(x, x.hold=x, sens, v, tr.br, j=1, weaken=TRUE, ...){
 	if(!length(x)) return(x)
 	#if(sens > 1) stop("sens cannot exceed 1.")
 	print(paste("Recursion level:", j))
@@ -92,7 +92,45 @@ spread <- function(x, x.hold=x, sens, v, tr.br, j=1, weaken=TRUE, ...){
 	} else x.hold
 }
 
-spreadByRep <- function(k, x, v, ...) spread(x=x[[k]], v=v[[k]], ...)
+.spreadSequential <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j=1, weaken=TRUE, ...){
+  if(!length(x)) return(x)
+  #if(sens > 1) stop("sens cannot exceed 1.")
+  print(paste("Recursion level:", j))
+  if(weaken) sens <- sens*(1-exp(-50/j))
+  j <- j+1
+  smax <- 1/sens
+  x.list <- prep_cells_ids(x, tr.br)
+  x.list <- rm_burned_na(x.list, x.hold, v)
+  x.list <- spread_to_cells(x.list, v, smax)
+  if(length(x.list[[1]])){
+    x.hold <- c(x.hold, x.list[[1]])
+    xid.hold <- c(xid.hold, x.list[[2]])
+    Recall(x=x.list[[1]], x.hold=x.hold, xid=x.list[[2]], xid.hold=xid.hold, sens=sens, v=v, tr.br=tr.br, j=j)
+  } else {
+    ord <- order(xid.hold)
+    x <- cbind(x.hold, xid.hold)[ord,]
+    colnames(x) <- c("Cell", "FID")
+    x
+  }
+}
+
+#' Spread fire to surrounding grid cells
+#'
+#' @param i integer, a dummy variable (iterator).
+#' @param x
+#' @param v
+#' @param sequential
+#' @param ...
+#'
+#' @return
+#' @export
+#'
+#' @examples
+spreadByRep <- function(k, x, v, sequential=TRUE, ...){
+  if(sequential)
+    .spreadSequential(x=x[[k]], v=v[[k]], ...) else
+      .spreadSimultaneous(x=x[[k]], v=v[[k]], ...)
+}
 
 # Recursive fire spread function
 prep_cells_ids <- function(x, tr.br){
@@ -120,30 +158,6 @@ spread_to_cells <- function(x, v, smax){
 	x[[2]] <- x[[2]][ind]
 	x
 }
-
-spread2 <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j=1, weaken=TRUE, ...){
-	if(!length(x)) return(x)
-	#if(sens > 1) stop("sens cannot exceed 1.")
-	print(paste("Recursion level:", j))
-	if(weaken) sens <- sens*(1-exp(-50/j))
-	j <- j+1
-	smax <- 1/sens
-	x.list <- prep_cells_ids(x, tr.br)
-	x.list <- rm_burned_na(x.list, x.hold, v)
-	x.list <- spread_to_cells(x.list, v, smax)
-	if(length(x.list[[1]])){
-		x.hold <- c(x.hold, x.list[[1]])
-		xid.hold <- c(xid.hold, x.list[[2]])
-		Recall(x=x.list[[1]], x.hold=x.hold, xid=x.list[[2]], xid.hold=xid.hold, sens=sens, v=v, tr.br=tr.br, j=j)
-	} else {
-		ord <- order(xid.hold)
-		x <- cbind(x.hold, xid.hold)[ord,]
-		colnames(x) <- c("Cell", "FID")
-		x
-	}
-}
-
-spreadByRep2 <- function(k, x, v, ...) spread2(x=x[[k]], v=v[[k]], ...)
 
 # Scale climate-mediated vegetation flammability by age-mediated vegetation flammability
 flamByAge <- function(r.flam, r.veg, r.age, prob, ignore.veg=0){
@@ -212,6 +226,23 @@ strike <- function(...){
 	return(list(cells=cells, intensity=intensity))
 }
 
+#' Ignite cells by lightning strikes on landscape
+#'
+#' Ignite landscape cells based on their lightning sensitivty and vegetation flammability.
+#'
+#' Ignition is based on a simple boolean check of whether lightning sensitivity, \code{s}, exceeds
+#' vegetation flammability, \code{r}, for each location in \code{x}. The subset of ignited locations is returned.
+#'
+#' @param i integer, a dummy variable (iterator).
+#' @param x a list of vectors of strike locations.
+#' @param s a list of vectors of strike intensity.
+#' @param r a list of vectors of vegetation flammability.
+#'
+#' @return a vector of ignited locations.
+#' @export
+#'
+#' @examples
+#' # not run
 ignite <- function(i, x, s, r) x[[i]][s[[i]] < r[[i]][x[[i]]]] # x=location, s=lightning intensity, r=vegetation flammability
 
 # Multiple simulation replicates
