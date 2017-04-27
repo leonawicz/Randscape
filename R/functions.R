@@ -13,33 +13,36 @@
 #'
 #' Existing black and white spruce cells in a raster vegetation map layer remain as they are.
 #' Deciduous cells are converted randomly to black or white spruce as a function of each cell's slope and aspect.
+#' This function should only be called by \code{setSpruceTypesByRep}, not directly.
 #'
 #' @param k integer, a dummy variable (iterator).
 #' @param r raster layer, vegetation IDs.
 #' @param slope raster layer, slope.
 #' @param aspect raster layer, aspect.
-#' @param bs.probs vector of black spruce probabilities associated with aspect bins. Defaults provided.
+#' @param bs.probs.slope vector of black spruce probabilities associated with aspect bins.
+#' White spruce probabilities are their reciprocal.
+#' @param bs.probs.aspect vector of black spruce probabilities associated with aspect bins.
+#' White spruce probabilities are their reciprocal.
+#' @param bwd.ids integer vector of ID codes for black spruce, white spruce and deciduous, respectively.
 #'
 #' @return A raster layer of spruce trajectories.
 
-.setSpruceTypes <- function(k, r, slope, aspect, bs.probs){ # k dummy variable
+.setSpruceTypes <- function(k, r, slope, aspect, bs.probs.slope, bs.probs.aspect, bwd.ids){
 	# First aspect
-	ind <- which(r[]==4 & !is.na(aspect[]))
+	ind <- which(r[]==bwd.ids[3] & !is.na(aspect[]))
 	bins <- seq(-2, 360, length=9)
-
-	names(bs.probs) <- 1:length(bs.probs)
+	names(bs.probs.aspect) <- 1:length(bs.probs.aspect)
 	aspect <- cut(aspect, breaks=bins)
 	aspect.v <- aspect[ind]
-	bs.ind <- bs.probs[aspect.v] > runif(length(ind))
-	r[ind[bs.ind]] <- 2
+	bs.ind <- bs.probs.aspect[aspect.v] > runif(length(ind))
+	r[ind[bs.ind]] <- bwd.ids[1]
 	# Then slope
-	ind <- which(r[]==4 & !is.na(slope[]))
-	bs.probs <- c(0.9, 0.1)
-	names(bs.probs) <- 1 + 0:1
+	ind <- which(r[]==bwd.ids[3] & !is.na(slope[]))
+	names(bs.probs.slope) <- 1 + 0:1
 	slope.v <- slope[ind] + 1
-	bs.ind <- bs.probs[slope.v] > runif(length(ind))
-	r[ind[bs.ind]] <- 2
-	r[r==4] <- 3
+	bs.ind <- bs.probs.slope[slope.v] > runif(length(ind))
+	r[ind[bs.ind]] <- bwd.ids[1]
+	r[r==bwd.ids[3]] <- bwd.ids[2]
 	r
 }
 
@@ -55,7 +58,11 @@
 #' @param r raster layer, vegetation IDs.
 #' @param slope raster layer, slope.
 #' @param aspect raster layer, aspect.
-#' @param bs.probs vector of black spruce probabilities associated with aspect bins. Defaults provided.
+#' @param bs.probs.slope vector of black spruce probabilities associated with aspect bins.
+#' Defaults provided. White spruce probabilities are their reciprocal.
+#' @param bs.probs.aspect vector of black spruce probabilities associated with aspect bins.
+#' Defaults provided. White spruce probabilities are their reciprocal.
+#' @param bwd.ids integer vector of ID codes for black spruce, white spruce and deciduous, respectively.
 #'
 #' @return A length-\code{i} list of raster layers of spruce trajectories.
 #' @export
@@ -63,8 +70,9 @@
 #' @examples
 #' # not run
 setSpruceTypesByRep <- function(k, i, r, slope, aspect,
-  bs.probs=c(0.8, 0.95, 0.95, 0.8, 0.2, 0.05, 0.05, 0.2)){
-	lapply(i, setSpruceTypes, r=r, slope=slope, aspect=aspect, bs.probs=bs.probs)
+  bs.probs.slope=c(0.8, 0.95, 0.95, 0.8, 0.2, 0.05, 0.05, 0.2),
+  bs.probs.aspect=c(0.9, 0.1), bwd.ids=c(2, 3, 4)){
+	lapply(i, .setSpruceTypes, r=r, slope=slope, aspect=aspect, bs.probs=bs.probs, bwd.ids=bwd.ids)
 }
 
 # Recursive fire spread function
