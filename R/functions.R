@@ -195,7 +195,7 @@ setSpruceTypesByRep <- function(k, i, r, slope, aspect,
 #' and runs its course before the next is ignited.
 #' Otherwise all fires burn the landscape simultaneously.
 #'
-#' @param i integer, a dummy variable (iterator).
+#' @param k integer, a dummy variable (iterator).
 #' @param x a list of vectors of ignition points (fire origin grid cells).
 #' @param v a list of vectors of vegetation flammability (all grid cells).
 #' @param sequential boolean, whether fires burn the landscape one a time or all at once.
@@ -213,9 +213,33 @@ spreadByRep <- function(k, x, v, sequential=TRUE, ...){
       .spreadSimultaneous(x=x[[k]], v=v[[k]], ...)
 }
 
-# Scale climate-mediated vegetation flammability by age-mediated vegetation flammability
+#' Mediate vegetation flammability by vegetation age.
+#'
+#' Scale climate-mediated vegetation flammability input raster
+#' using vegetation age-mediated vegetation flammability.
+#'
+#' This function takes a raster layer representing vegetation flammability
+#' already mediated by climate and further scales the flammability values
+#' in the raster grid cells based on vegetation age. The effect of vegetation
+#' age on flammability is also vegetation class-dependent. There is a different
+#' set of parameters, \code{k}, \code{a} and \code{b} for each vegetation class, hence
+#' why \code{prob} is a list of length-\code{3} vectors.
+#' The coefficient applied to each cell in \code{r.flam} is \eqn{(k/(1+exp(a[i]-b[i]*r.age[idx[i]]))} where
+#' \code{i} refers to each vegetation class and \code{idx} refers to the cell indices with that vegetation.
+#'
+#' @param r.flam a raster layer of climate-mediated vegetation flammability.
+#' @param r.veg a raster layer of vegetation cover type class IDs.
+#' @param r.age a raster layer of vegetation age.
+#' @param prob a list of vectors of parameters influencing the logistic curve that
+#' represents the probability of fire based on vegetation age.
+#' @param ignore.veg integer vector of vegetation ID codes to be ignored.
+#'
+#' @return a raster layer of vegetation flammabilities.
+#' @export
+#'
+#' @examples
+#' # not run
 flamByAge <- function(r.flam, r.veg, r.age, prob, ignore.veg=0){
-	#if(!all(c(hasArg(r.veg), hasArg(r.age), hasArg(prob)))) return(r.flam)
 	n.v <- length(prob)
 	for(i in 1:n.v){
 		pars <- prob[[i]]
@@ -228,15 +252,62 @@ flamByAge <- function(r.flam, r.veg, r.age, prob, ignore.veg=0){
 	r.flam
 }
 
-flamByAgeByRep <- function(k, r.f, r.v, r.a, p, iv=0) flamByAge(r.flam=r.f, r.veg=r.v[[k]], r.age=r.a[[k]], prob=p, ignore.veg=iv)
-
-updateAge <- function(a, i){
-	a <- a + 1
-	if(length(i)) a[i] <- 0
-	a
+#' Mediate vegetation flammability by vegetation age.
+#'
+#' Scale climate-mediated vegetation flammability input raster
+#' using vegetation age-mediated vegetation flammability.
+#'
+#' This function takes a raster layer representing vegetation flammability
+#' already mediated by climate and further scales the flammability values
+#' in the raster grid cells based on vegetation age. The effect of vegetation
+#' age on flammability is also vegetation class-dependent. There is a different
+#' set of parameters, \code{k}, \code{a} and \code{b} for each vegetation class, hence
+#' why \code{prob} is a list of length-\code{3} vectors.
+#' The coefficient applied to each cell in \code{r.flam} is \eqn{(k/(1+exp(a[i]-b[i]*r.age[idx[i]]))} where
+#' \code{i} refers to each vegetation class and \code{idx} refers to the cell indices with that vegetation.
+#'
+#' @param i integer, a dummy variable (iterator).
+#' @param r.flam a length-\code{i} list of raster layers of climate-mediated vegetation flammability.
+#' @param r.veg a length-\code{i} list of raster layers of vegetation cover type class IDs.
+#' @param r.age a length-\code{i} list of raster layer of vegetation age.
+#' @param prob a list of vectors of parameters influencing the logistic curve that
+#' represents the probability of fire based on vegetation age. The length is equal to the number of
+#' vegetation classes under consideration. If an ID code is not present in \code{r.veg} and is not ignored
+#' via \code{ignore.veg}, an error is thrown.
+#' @param ignore.veg integer vector of vegetation ID codes to be ignored.
+#'
+#' @return a raster layer of vegetation flammabilities.
+#' @export
+#'
+#' @examples
+#' # not run
+flamByAgeByRep <- function(i, r.flam, r.veg, r.aage, prob, ignore.veg=0){
+  flamByAge(r.flam=r.flam, r.veg=r.veg[[i]], r.age=r.age[[i]], prob=prob, ignore.veg=ignore.veg)
 }
 
-updateAgeByRep <- function(k, a, i)	updateAge(a=a[[k]], i=i[[k]])
+
+
+#' Title
+#'
+#' @param k integer, a dummy variable (iterator).
+#' @param a a list of raster layers of vegetation age.
+#' @param i a list of vectors or matrices containing burned grid cell indices.
+#'
+#' @return a raster layer of updated vegetation age for iteration \code{k}.
+#' @export
+#'
+#' @examples
+#' # not run
+updateAgeByRep <- function(k, a, i){
+  updateAge <- function(a, i){
+    a <- a + 1
+    if(length(i)){
+      if(is.matrix(i)) a[i[["Cell"]]] <- 0 else a[i] <- 0
+    }
+    a
+  }
+  updateAge(a=a[[k]], i=i[[k]])
+}
 
 trans.succeed <- c('1'=1, '2'=2, '3'=3, '4'=c(2,3), '5'=5, '6'=5, '7'=7)
 trans.colonize <- c('1'=1, '2'=2, '3'=3, '4'=4, '5'=3, '6'=3, '7'=7)
