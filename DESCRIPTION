@@ -9,4 +9,6 @@ Description: This package offers wildfire and vegetation succession
 License: MIT
 Encoding: UTF-8
 LazyData: true
-Imports: raster
+Imports: raster,
+    dplyr,
+    purrr
