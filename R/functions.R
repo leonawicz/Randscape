@@ -75,7 +75,29 @@ setSpruceTypesByRep <- function(k, i, r, slope, aspect,
 	lapply(i, .setSpruceTypes, r=r, slope=slope, aspect=aspect, bs.probs=bs.probs, bwd.ids=bwd.ids)
 }
 
-# Recursive fire spread function
+#' Simultaneous fire spread.
+#'
+#' Spread all fires on the landscape simultaneously.
+#'
+#' This function spreads fires out from their origin cells simultaneously.
+#' This is algorithmically and computationally a bit simpler than \code{.spreadSequential}
+#' but it does not allow tracking of individual fires on the landcaspe by fire IDs.
+#' Fire spread is recursive. This function should only be called by \code{spreadByRep},
+#' not directly.
+#'
+#' @param x a vector of ignition locations (grid cell indices).
+#' @param x.hold storage for \code{x} when function is called recursively.
+#' @param sens numeric constant, the spread sensitivity of neighboring cells.
+#' @param v a vector of vegetation flammabilities of all grid cells.
+#' @param tr.br a vector of column number breaks assisting with recursive fire spread within the raster domain.
+#' @param j recursion iterator.
+#' @param weaken boolean, whether sensitivity should weaken with each round of burning.
+#' @param ... arguments passed from \code{spreadByRep}.
+#'
+#' @return
+#'
+#' @examples
+#' # not run
 .spreadSimultaneous <- function(x, x.hold=x, sens, v, tr.br, j=1, weaken=TRUE, ...){
 	if(!length(x)) return(x)
 	#if(sens > 1) stop("sens cannot exceed 1.")
@@ -92,6 +114,30 @@ setSpruceTypesByRep <- function(k, i, r, slope, aspect,
 	} else x.hold
 }
 
+#' Sequential fire spread.
+#'
+#' Spread fire on the landscape one fire at a time.
+#'
+#' This function spreads fire out from their origin cell sequentially
+#' so that individual fire IDs can be associated with bunred cells.
+#' Fire spread is recursive. This function should only be called by \code{spreadByRep},
+#' not directly.
+#'
+#' @param x a vector of ignition locations (grid cell indices).
+#' @param x.hold storage for \code{x} when function is called recursively.
+#' @param xid integer vector of fire IDs to be associated with each unique fire origin cell in \code{x}.
+#' @param xid.hold storage for \code{x} when function is called recursively.
+#' @param sens numeric constant, the spread sensitivity of neighboring cells.
+#' @param v a vector of vegetation flammabilities of all grid cells.
+#' @param tr.br a vector of column number breaks assisting with recursive fire spread within the raster domain.
+#' @param j recursion iterator.
+#' @param weaken boolean, whether sensitivity should weaken with each round of burning.
+#' @param ... arguments passed from \code{spreadByRep}.
+#'
+#' @return a matrix containing a column of burned cell indices and a column of fire IDs.
+#'
+#' @examples
+#' # not run
 .spreadSequential <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j=1, weaken=TRUE, ...){
   if(!length(x)) return(x)
   #if(sens > 1) stop("sens cannot exceed 1.")
@@ -99,9 +145,36 @@ setSpruceTypesByRep <- function(k, i, r, slope, aspect,
   if(weaken) sens <- sens*(1-exp(-50/j))
   j <- j+1
   smax <- 1/sens
-  x.list <- prep_cells_ids(x, tr.br)
-  x.list <- rm_burned_na(x.list, x.hold, v)
-  x.list <- spread_to_cells(x.list, v, smax)
+
+  .prep_cells_ids <- function(x, tr.br){
+    n <- length(x)
+    x <- c(x-1, x+1, mapply("+", x, MoreArgs=tr.br)) # boundary cells
+    xid <- c(rep(1:n, 2), rep(1:n, each=6)) # corresponding fire IDs
+    x.ind <- which(!duplicated(x)) # remove overlap (randomized input order)
+    xid <- xid[x.ind]
+    x <- x[x.ind]
+    xid <- xid[order(x)] # Sort by cell index
+    x <- sort(x)
+    list(x, xid)
+  }
+
+  .rm_burned_na <- function(x, x.hold, v){
+    ind <- !(x[[1]] %in% x.hold | is.na(v[x[[1]]])) # remove cells previously burned or NA-valued
+    x[[1]] <- x[[1]][ind]
+    x[[2]] <- x[[2]][ind]
+    x
+  }
+
+  .spread_to_cells <- function(x, v, smax){
+    ind <- runif(length(x[[1]]), 0, smax) < v[x[[1]]]
+    x[[1]] <- x[[1]][ind]
+    x[[2]] <- x[[2]][ind]
+    x
+  }
+
+  x.list <- .prep_cells_ids(x, tr.br)
+  x.list <- .rm_burned_na(x.list, x.hold, v)
+  x.list <- .spread_to_cells(x.list, v, smax)
   if(length(x.list[[1]])){
     x.hold <- c(x.hold, x.list[[1]])
     xid.hold <- c(xid.hold, x.list[[2]])
@@ -116,47 +189,28 @@ setSpruceTypesByRep <- function(k, i, r, slope, aspect,
 
 #' Spread fire to surrounding grid cells
 #'
-#' @param i integer, a dummy variable (iterator).
-#' @param x
-#' @param v
-#' @param sequential
-#' @param ...
+#' Fire is spread recursively to surrounding grid cells from starting cells.
 #'
-#' @return
+#' If \code{sequential=TRUE} (default), each fire is ignited on the landscape
+#' and runs its course before the next is ignited.
+#' Otherwise all fires burn the landscape simultaneously.
+#'
+#' @param i integer, a dummy variable (iterator).
+#' @param x a list of vectors of ignition points (fire origin grid cells).
+#' @param v a list of vectors of vegetation flammability (all grid cells).
+#' @param sequential boolean, whether fires burn the landscape one a time or all at once.
+#' @param ... arguments passed to fire spread functions.
+#'
+#' @return if \code{sequential=TRUE}, a matrix containing a column of burned cell indices
+#'  and a column of fire IDs. Otherwise, a vector of burned cell indices.
 #' @export
 #'
 #' @examples
+#' # not run
 spreadByRep <- function(k, x, v, sequential=TRUE, ...){
   if(sequential)
     .spreadSequential(x=x[[k]], v=v[[k]], ...) else
       .spreadSimultaneous(x=x[[k]], v=v[[k]], ...)
-}
-
-# Recursive fire spread function
-prep_cells_ids <- function(x, tr.br){
-	n <- length(x)
-	x <- c(x-1, x+1, mapply("+", x, MoreArgs=tr.br)) # boundary cells
-	xid <- c(rep(1:n, 2), rep(1:n, each=6)) # corresponding fire IDs
-	x.ind <- which(!duplicated(x)) # remove overlap (randomized input order)
-	xid <- xid[x.ind]
-	x <- x[x.ind]
-	xid <- xid[order(x)] # Sort by cell index
-	x <- sort(x)
-	list(x, xid)
-}
-
-rm_burned_na <- function(x, x.hold, v){
-	ind <- !(x[[1]] %in% x.hold | is.na(v[x[[1]]])) # remove cells previously burned or NA-valued
-	x[[1]] <- x[[1]][ind]
-	x[[2]] <- x[[2]][ind]
-	x
-}
-
-spread_to_cells <- function(x, v, smax){
-	ind <- runif(length(x[[1]]), 0, smax) < v[x[[1]]]
-	x[[1]] <- x[[1]][ind]
-	x[[2]] <- x[[2]][ind]
-	x
 }
 
 # Scale climate-mediated vegetation flammability by age-mediated vegetation flammability
@@ -216,6 +270,20 @@ updateVegByRep <- function(k, v, spruce.type, a, i){
 	updateVeg(v=v[[k]], spruce.type[[k]], a[[k]], i[[k]])
 }
 
+#' Landscape lightning strikes
+#'
+#' Strike the landscape randomly.
+#'
+#' This function is only used internally. It generates \code{n} lightning strikes where \code{n}
+#' sampled from a normal distribution centered on \code{n.strikes} with a standard deviattion of five.
+#' See the source code for \code{simulate} for context.
+#'
+#' @param ... arguments passed from \code{simulate}.
+#'
+#' @return a list of two vectors: a vector of struck cells and a vector of strike intensities.
+#'
+#' @examples
+#' # not run
 strike <- function(...){
 	dots <- list(...)
 	index=dots$index
