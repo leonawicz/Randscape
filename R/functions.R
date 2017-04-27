@@ -302,43 +302,92 @@ updateAgeByRep <- function(k, a, i){
   updateAge <- function(a, i){
     a <- a + 1
     if(length(i)){
-      if(is.matrix(i)) a[i[["Cell"]]] <- 0 else a[i] <- 0
+      if(is.matrix(i)) a[i["Cell"]] <- 0 else a[i] <- 0
     }
     a
   }
   updateAge(a=a[[k]], i=i[[k]])
 }
 
-trans.succeed <- c('1'=1, '2'=2, '3'=3, '4'=c(2,3), '5'=5, '6'=5, '7'=7)
-trans.colonize <- c('1'=1, '2'=2, '3'=3, '4'=4, '5'=3, '6'=3, '7'=7)
-trans.burn <- c('1'=1, '2'=4, '3'=4, '4'=4, '5'=6, '6'=6, '7'=7)
+#' Update vegetation
+#'
+#' Update vegetation following burning, succession and colonization.
+#'
+#' This function currently only implements updating vegetation classes of grid cells
+#' in resonse to fire and general ecological succession. Colonization is not yet implemented.
+#' While there are several hardcoded vegetation IDs and logisitic curve parameters,
+#' they are provided as defaults to function arguments so they can still be changed if needed.
+#' However, the various forms of vegetation transition from one vegetation class to another
+#' are assumed fixed and coded into the function. They involve black spruce, white spruce,
+#' deciduous, shrub tundra and graminoid tundra.
+#'
+#' @param k integer, a dummy variable (iterator).
+#' @param v a list of raster layers of vegetation IDs.
+#' @param spruce.type a list of raster layers of spruce trajectory IDs.
+#' @param a a list of raster layers of vegetation age.
+#' @param i a list of vectors or matrices containing burned cell indices.
+#' @param trans.succeed a list mapping the direction of succession from one vegetation
+#' class to possible different classes. Not currently in use.
+#' @param trans.colonize a list mapping the direction of colonization from one vegetation
+#' class to possible different classes. Not currently implemented.
+#' @param trans.burn a list mapping the direction of fire transition from one vegetation
+#' class to possible different classes.
+#' @param bs.pars a vector of parameters \code{k}, \code{a} and \code{b} describing the logistic
+#' curve representing age-based ecological succession to black spruce from
+#' black spruce-trajectory deciduous using the equation \eqn{(k/(1+exp(a-b*age))}.
+#' @param ws.pars the same as \code{bs.pars} but succeeding to white spruce from
+#' white spruce-trajectory deciduous.
+#' @param gram.pars the same as \code{bs.pars} but succeeding to shrub tundra from graminoid tundra.
+#' @param bwdsg integer vector, ID codes for black spruce, white spruce, deciduous, shrub tundra
+#' and graminoid tundra, respectively. These must correspond to the \code{trans*} arguments
+#' and vice versa.
+#'
+#' @return a list of raster layers of updated vegetation classes.
+#' @export
+#'
+#' @examples
+#' # not run
+updateVegByRep <- function(k, v, spruce.type, a, i,
+                           trans.succeed=list('1'=1, '2'=2, '3'=3, '4'=c(2,3), '5'=5, '6'=5, '7'=7),
+                           trans.colonize=list('1'=1, '2'=2, '3'=3, '4'=4, '5'=3, '6'=3, '7'=7),
+                           trans.burn=list('1'=1, '2'=4, '3'=4, '4'=4, '5'=6, '6'=6, '7'=7),
+                           bs.pars=c(1, 6, 0.2),
+                           ws.pars=c(1, 10, 0.25),
+                           gram.pars=c(1, 15, 0.25),
+                           bwdsg=c(2, 3, 4, 5, 6)){
 
-updateVeg <- function(v, spruce.type, a, i){
-	# Burn transition
-	v0 <- v[i]
-	v[i] <- trans.burn[v0]
-	# Succession
-	v1 <- v[-i]
-	st1 <- spruce.type[-i]
-	a1 <- a[-i]
-	bs.pars <- c(1, 6, 0.2)
-	ws.pars <- c(1, 10, 0.25)
-	gram.pars <- c(1, 15, 0.25)
-	succession <- function(age, p) p[1]/(1+exp(p[2]-p[3]*age)) > runif(length(age))
-	bs.ind <- v1==4 & st1==2
-	ws.ind <- v1==4 & st1==3
-	gram.ind <- v1==6
-	v1[bs.ind & succession(age=a1[bs.ind], p=bs.pars)] <- 2
-	v1[ws.ind & succession(age=a1[ws.ind], p=ws.pars)] <- 3
-	v1[gram.ind & succession(age=a1[gram.ind], p=gram.pars)] <- 5
-	v[-i] <- v1
-	# Colonization
-	# Establish conditions for colonization
-	v
-}
+  updateVeg <- function(v, spruce.type, a, i,
+                        trans.succeed=list('1'=1, '2'=2, '3'=3, '4'=c(2,3), '5'=5, '6'=5, '7'=7),
+                        trans.colonize=list('1'=1, '2'=2, '3'=3, '4'=4, '5'=3, '6'=3, '7'=7),
+                        trans.burn=list('1'=1, '2'=4, '3'=4, '4'=4, '5'=6, '6'=6, '7'=7),
+                        bs.pars=c(1, 6, 0.2),
+                        ws.pars=c(1, 10, 0.25),
+                        gram.pars=c(1, 15, 0.25),
+                        bwdsg=c(2, 3, 4, 5, 6)){
+    if(is.matrix(i)) i <- i["Cell"]
+    # Burn transition
+    v0 <- v[i]
+    v[i] <- trans.burn[[v0]]
+    # Succession
+    v1 <- v[-i]
+    st1 <- spruce.type[-i]
+    a1 <- a[-i]
+    succession <- function(age, p) p[1]/(1+exp(p[2]-p[3]*age)) > runif(length(age))
+    bs.ind <- v1==bwdsg[3] & st1==bwdsg[1]
+    ws.ind <- v1==bwdsg[3] & st1==bwdsg[2]
+    gram.ind <- v1==bwdsg[5]
+    v1[bs.ind & succession(age=a1[bs.ind], p=bs.pars)] <- bwdsg[1]
+    v1[ws.ind & succession(age=a1[ws.ind], p=ws.pars)] <- bwdsg[2]
+    v1[gram.ind & succession(age=a1[gram.ind], p=gram.pars)] <- bwdsg[4]
+    v[-i] <- v1
+    # Colonization
+    # Establish conditions for colonization
+    v
+  }
 
-updateVegByRep <- function(k, v, spruce.type, a, i){
-	updateVeg(v=v[[k]], spruce.type[[k]], a[[k]], i[[k]])
+	updateVeg(v=v[[k]], spruce.type[[k]], a[[k]], i[[k]],
+    trans.succeed=trans.succeed, trans.colonize=trans.colonize, trans.burn=trans.burn,
+    bs.pars=bs.pars, ws.pars=ws.pars, gram.pars=gram.pars, bwdsg=bwdsg)
 }
 
 #' Landscape lightning strikes
