@@ -1,0 +1,12 @@
+Package: randscape
+Type: Package
+Title: Wildfire And Vegetation Succession Simulation
+Version: 0.1.0
+Authors@R: person("Matthew", "Leonawicz", email = "mfleonawicz@alaska.edu",
+    role = c("aut", "cre"))
+Description: This package offers wildfire and vegetation succession
+    simulation functions.
+License: MIT
+Encoding: UTF-8
+LazyData: true
+Imports: raster
