@@ -13,47 +13,9 @@
 #'
 #' Existing black and white spruce cells in a raster vegetation map layer remain as they are.
 #' Deciduous cells are converted randomly to black or white spruce as a function of each cell's slope and aspect.
-#' This function should only be called by \code{setSpruceTypesByRep}, not directly.
 #'
-#' @param k integer, a dummy variable (iterator).
-#' @param r raster layer, vegetation IDs.
-#' @param slope raster layer, slope.
-#' @param aspect raster layer, aspect.
-#' @param bs.probs.slope vector of black spruce probabilities associated with aspect bins.
-#' White spruce probabilities are their reciprocal.
-#' @param bs.probs.aspect vector of black spruce probabilities associated with aspect bins.
-#' White spruce probabilities are their reciprocal.
-#' @param bwd.ids integer vector of ID codes for black spruce, white spruce and deciduous, respectively.
-#'
-#' @return A raster layer of spruce trajectories.
-.setSpruceTypes <- function(k, r, slope, aspect, bs.probs.slope, bs.probs.aspect, bwd.ids){
-	# First aspect
-	ind <- which(r[]==bwd.ids[3] & !is.na(aspect[]))
-	bins <- seq(-2, 360, length=9)
-	names(bs.probs.aspect) <- 1:length(bs.probs.aspect)
-	aspect <- cut(aspect, breaks=bins)
-	aspect.v <- aspect[ind]
-	bs.ind <- bs.probs.aspect[aspect.v] > runif(length(ind))
-	r[ind[bs.ind]] <- bwd.ids[1]
-	# Then slope
-	ind <- which(r[]==bwd.ids[3] & !is.na(slope[]))
-	names(bs.probs.slope) <- 1 + 0:1
-	slope.v <- slope[ind] + 1
-	bs.ind <- bs.probs.slope[slope.v] > runif(length(ind))
-	r[ind[bs.ind]] <- bwd.ids[1]
-	r[r==bwd.ids[3]] <- bwd.ids[2]
-	r
-}
-
-#' Set spruce types
-#'
-#' This function establishes black vs. white spruce trajectories on the landscape.
-#'
-#' Existing black and white spruce cells in a raster vegetation map layer remain as they are.
-#' Deciduous cells are converted randomly to black or white spruce as a function of each cell's slope and aspect.
-#'
-#' @param k integer, a dummy variable (iterator).
-#' @param i integer vector (inner iterator).
+#' @param k integer, a dummy variable (outer/parallel replicate iterator).
+#' @param n integer number of inner (serial) replicates.
 #' @param r raster layer, vegetation IDs.
 #' @param slope raster layer, slope.
 #' @param aspect raster layer, aspect.
@@ -68,11 +30,30 @@
 #'
 #' @examples
 #' # not run
-setSpruceTypesByRep <- function(k, i, r, slope, aspect,
+setSpruceTypes <- function(k, n, r, slope, aspect,
   bs.probs.slope=c(0.8, 0.95, 0.95, 0.8, 0.2, 0.05, 0.05, 0.2),
   bs.probs.aspect=c(0.9, 0.1), bwd.ids=c(2, 3, 4)){
-	lapply(i, .setSpruceTypes, r=r, slope=slope, aspect=aspect,
-	       bs.probs.slope=bs.probs.slope, bs.probs.aspect=bs.probs.aspect, bwd.ids=bwd.ids)
+
+  .setSpruceTypes <- function(r, slope, aspect, bs.probs.slope, bs.probs.aspect, bwd.ids){
+    # First aspect
+    ind <- which(r[]==bwd.ids[3] & !is.na(aspect[]))
+    bins <- seq(-2, 360, length=9)
+    names(bs.probs.aspect) <- 1:length(bs.probs.aspect)
+    aspect <- cut(aspect, breaks=bins)
+    aspect.v <- aspect[ind]
+    bs.ind <- bs.probs.aspect[aspect.v] > runif(length(ind))
+    r[ind[bs.ind]] <- bwd.ids[1]
+    # Then slope
+    ind <- which(r[]==bwd.ids[3] & !is.na(slope[]))
+    names(bs.probs.slope) <- 1 + 0:1
+    slope.v <- slope[ind] + 1
+    bs.ind <- bs.probs.slope[slope.v] > runif(length(ind))
+    r[ind[bs.ind]] <- bwd.ids[1]
+    r[r==bwd.ids[3]] <- bwd.ids[2]
+    r
+  }
+
+	purrr::map(1:n, ~.setSpruceTypes(r, slope, aspect, bs.probs.slope, bs.probs.aspect, bwd.ids))
 }
 
 #' Sequential fire spread.
@@ -188,42 +169,11 @@ flamByAge <- function(r.flam, r.veg, r.age, prob, ignore.veg=0){
 	r.flam
 }
 
-#' Mediate vegetation flammability by vegetation age.
+#' Update vegetation age.
 #'
-#' Scale climate-mediated vegetation flammability input raster
-#' using vegetation age-mediated vegetation flammability.
+#' Update vegetation age based on burned cells.
 #'
-#' This function takes a raster layer representing vegetation flammability
-#' already mediated by climate and further scales the flammability values
-#' in the raster grid cells based on vegetation age. The effect of vegetation
-#' age on flammability is also vegetation class-dependent. There is a different
-#' set of parameters, \code{k}, \code{a} and \code{b} for each vegetation class, hence
-#' why \code{prob} is a list of length-\code{3} vectors.
-#' The coefficient applied to each cell in \code{r.flam} is \eqn{(k/(1+exp(a[i]-b[i]*r.age[idx[i]]))} where
-#' \code{i} refers to each vegetation class and \code{idx} refers to the cell indices with that vegetation.
-#'
-#' @param i integer, a dummy variable (iterator).
-#' @param r.flam a length-\code{i} list of raster layers of climate-mediated vegetation flammability.
-#' @param r.veg a length-\code{i} list of raster layers of vegetation cover type class IDs.
-#' @param r.age a length-\code{i} list of raster layer of vegetation age.
-#' @param prob a list of vectors of parameters influencing the logistic curve that
-#' represents the probability of fire based on vegetation age. The length is equal to the number of
-#' vegetation classes under consideration. If an ID code is not present in \code{r.veg} and is not ignored
-#' via \code{ignore.veg}, an error is thrown.
-#' @param ignore.veg integer vector of vegetation ID codes to be ignored.
-#'
-#' @return a raster layer of vegetation flammabilities.
-#' @export
-#'
-#' @examples
-#' # not run
-flamByAgeByRep <- function(i, r.flam, r.veg, r.aage, prob, ignore.veg=0){
-  flamByAge(r.flam=r.flam, r.veg=r.veg[[i]], r.age=r.age[[i]], prob=prob, ignore.veg=ignore.veg)
-}
-
-
-
-#' Title
+#' Burning resets vegetation age to zero. Otherwise age is incremented by one time unit.
 #'
 #' @param r.age a raster layer of vegetation age.
 #' @param cells.burned a table containing burned grid cell indices.
@@ -287,7 +237,7 @@ updateVeg <- function(r.veg, r.spruce, r.age, cells.burned,
   i <- cells.burned$Cell
   # Burn transition
   v0 <- r.veg[i]
-  r.veg[i] <- trans.burn[[v0]]
+  r.veg[i] <- as.integer(unlist(trans.burn[v0]))
   # Succession
   v1 <- r.veg[-i]
   spr <- r.spruce[-i]
@@ -309,7 +259,7 @@ updateVeg <- function(r.veg, r.spruce, r.age, cells.burned,
 #'
 #' Strike the landscape randomly.
 #'
-#' This function is only used internally. It generates \code{n} lightning strikes where \code{n}
+#' This function generates \code{n} lightning strikes where \code{n}
 #' sampled from a normal distribution centered on \code{n.strikes} with a standard deviation of five.
 #' See the source code for \code{simulate} for context.
 #'
@@ -320,6 +270,7 @@ updateVeg <- function(r.veg, r.spruce, r.age, cells.burned,
 #' @param ignit numeric, ignition probability.
 #'
 #' @return a list of two vectors: a vector of struck cells and a vector of strike intensities.
+#' @export
 #'
 #' @examples
 #' # not run
@@ -362,7 +313,7 @@ simulate <- function(par.iter, prob, Maps=F, simMaps, r.spruce.type, r.age, r.ve
 	n.yrs <- nlayers(b.flam)
 	n.sim <- length(r.age)
 	if(missing(simMaps)) simMaps <- 1:n.sim
-	burned.list <- n.fires.list <- fs.list <- tba.list <- vector("list", n.yrs)
+	cells.burned.list <- n.fires.list <- fs.list <- tba.list <- vector("list", n.yrs)
 	r.age.list <- r.veg.list <- vector("list", n.yrs)
 
 	for(z in 1:n.yrs){
@@ -387,7 +338,7 @@ simulate <- function(par.iter, prob, Maps=F, simMaps, r.spruce.type, r.age, r.ve
 		  cells.burned.tmp <- vector("list", n.fires[[i]])
 		  for(j in 1:n.fires[[i]]){
 		    cells.burned.tmp[[j]] <- spread(x=ig.pts[[i]][j], v=v.flam.tmp, ...)
-		    v.flam.tmp[cells.burned.tmp[[j]]] <- 0
+		    v.flam.tmp[cells.burned.tmp[[j]]$Cell] <- 0
 		  }
 		  fs[[i]] <- sapply(cells.burned.tmp, length) # store the fire sizes by sim
 		  tba[[i]] <- sum(fs[[i]]) # store the total burn area by sim
@@ -395,7 +346,7 @@ simulate <- function(par.iter, prob, Maps=F, simMaps, r.spruce.type, r.age, r.ve
 		}
 
 		if(verbose) cat("Completed fire spread.\n")
-		r.age <- purrr::map(1:n.sim, ~updateAge(a=r.age[[.x]], i=cells.burned[[.x]]))
+		r.age <- purrr::map(1:n.sim, ~updateAge(r.age[[.x]], cells.burned[[.x]]))
 		if(verbose) cat("Updated vegetation ages.\n")
 		r.veg <- purrr::map(1:n.sim, ~updateVeg(r.veg[[.x]], r.spruce.type[[.x]], r.age[[.x]], cells.burned[[.x]]))
 		if(verbose) cat("Updated vegetation types.\n")
