@@ -1,6 +1,7 @@
 library(parallel)
 library(raster)
 library(dplyr)
+library(purrr)
 rasterOptions(chunksize=10^12,maxmemory=10^11)
 
 setwd("/workspace/UA/mfleonawicz/projects/randscape/workspaces")
@@ -17,19 +18,15 @@ ignit <- 5 # Ignition factor
 sens <- 10 # Sensitivity factor
 set.seed(856)
 n <- nlayers(b.flam)
-SimBurnProbByYear <- Sim1AgeByYear <- Sim1VegByYear <- vector("list", n)
+yrs <- as.numeric(substring(names(b.flam), 11))
 
-# testing...
-results <- simulate(1, n.strikes=n.strikes, ignit=ignit, sens=sens,
-                    b.flam=subset(b.flam, 1:3), r.burn=r.burn, r.veg=r.veg.list, r.age=r.age.list, r.spruce.type=r.spruce.list,
-                    prob=fire.prob, tr.br=tr.br, ignore.veg=0,
-                    Maps=T)
+system.time({
+  results <- mclapply(1:n.parsim, simulate, n.strikes=n.strikes, ignit=ignit, sens=sens,
+    b.flam=subset(b.flam, 1:3), years=yrs[1:3], r.burn=r.burn, r.veg=r.veg.list, r.age=r.age.list, r.spruce.type=r.spruce.list,
+    prob=fire.prob, tr.br=tr.br, ignore.veg=0, keep.maps=TRUE, mc.cores=n.parsim) })
 
-# Simulation version 3: year loop inside parallel sim
-system.time({ results <- mclapply(1:n.parsim, simulate, n.strikes=n.strikes, ignit=ignit, sens=sens,
-                                  b.flam=b.flam, r.burn=r.burn, r.veg=r.veg.list, r.age=r.age.list, r.spruce.type=r.spruce.list,
-                                  prob=fire.prob, tr.br=tr.br, ignore.veg=0,
-                                  Maps=T, mc.cores=n.parsim) })
+fire <- map(results, ~.x$Fire) %>% bind_rows()
+veg <- map(results, ~.x$Veg) %>% bind_rows()
 
 SimBurnProbByYear[[z]] <- Reduce("+", lapply(results, "[[", 1))/(n.sim*n.parsim) #results$SimBurnProb
 
