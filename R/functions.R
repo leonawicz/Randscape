@@ -83,7 +83,7 @@ setSpruceTypes <- function(k, n, r, slope, aspect,
 spread <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j=1, weaken=TRUE, ...){
   if(!length(x)) return(x)
   #if(sens > 1) stop("sens cannot exceed 1.")
-  print(paste("Recursion level:", j))
+  #print(paste("Recursion level:", j))
   if(weaken) sens <- sens*(1-exp(-50/j))
   j <- j+1
   smax <- 1/sens
@@ -123,7 +123,7 @@ spread <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j
     Recall(x=x.list[[1]], x.hold=x.hold, xid=x.list[[2]], xid.hold=xid.hold, sens=sens, v=v, tr.br=tr.br, j=j)
   } else {
     ord <- order(xid.hold)
-    x <- dplyr::tbl_df(data.frame(x.hold, xid.hold)) %>% dplyr::slice(ord)
+    x <- dplyr::tbl_df(data.frame(as.integer(x.hold), as.integer(xid.hold))) %>% dplyr::slice(ord)
     names(x) <- c("Cell", "FID")
     x
   }
@@ -301,6 +301,7 @@ ignite <- function(x, s, r) x[s < r[x]] # x=location, s=lightning intensity, r=v
 
 # Multiple simulation replicates
 simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.veg, b.flam, years=NULL, verbose=TRUE, ...){
+  verbose <- verbose & par.iter==1
 	r.spruce.type <- r.spruce.type[[par.iter]]
 	r.age <- r.age[[par.iter]]
 	r.veg <- r.veg[[par.iter]]
@@ -321,10 +322,11 @@ simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.ve
 	  keep.maps <- sort(unique(keep.maps))
 	}
 	cells.burned0 <- veg0 <- r.age.list <- r.veg.list <- vector("list", n.yrs)
-	years <- if(!is.null(years) && length(years)==n.yrs) years else 1:n.yrs
+	years <- if(!is.null(years) && length(years)==n.yrs) as.integer(years) else 1:n.yrs
 	names(cells.burned0) <- names(r.age.list) <- names(r.veg.list) <- years
 
 	for(z in 1:n.yrs){
+	  if(par.iter==1) cat(paste("Simulation year:", years[z], "...\n"))
 		r.flam <- subset(b.flam, z)
 		r.flam[veg0.ind] <- 0 # Why are there postive flammablity probabilies in the flammability maps where veg ID is 0?
 		strikes <- strike(n.sim, n.strikes, index, ignit)
@@ -356,11 +358,9 @@ simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.ve
 		                                     Veg=as.integer(r.veg[[i]][cells$Cell]),
 		                                     Age=as.integer(r.age[[i]][cells$Cell])) # veg and age at time of burn
 		  # veg area and age
-		  veg[[i]] <- purrr::map(uni.veg,
-		    ~raster::freq(raster::mask(r.age[[i]], raster::Which(r.veg[[i]]==.x), maskvalue=FALSE), useNA="no") %>%
-		      data.frame %>% dplyr::tbl_df() %>% dplyr::rename(Age=value, Freq=count) %>%
-		      dplyr::mutate(Year=years[z], VegID=as.integer(.x), Age=as.integer(Age), Freq=as.integer(Freq), Replicate=rep.i)
-		  ) %>% dplyr::bind_rows()
+		  veg[[i]] <- data.frame(Year=years[z], VegID=as.integer(r.veg[[i]][]), Age=as.integer(r.age[[i]][]), Replicate=rep.i) %>%
+		    dplyr::tbl_df() %>% dplyr::filter(!is.na(VegID)) %>% dplyr::group_by(Replicate, Year, VegID, Age) %>%
+		    dplyr::summarise(Freq=n()) %>% dplyr::ungroup()
 		}
 
 		cells.burned0[[z]] <- dplyr::bind_rows(cells.burned)
@@ -376,6 +376,7 @@ simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.ve
 		if(verbose) cat("Updated vegetation types.\n")
 	}
 
+	if(par.iter==1) cat("Gathering outputs...\n")
 	cells.burned0 <- dplyr::bind_rows(cells.burned0) %>% select(Year, FID, Cell, Veg, Age, Replicate) %>%
 	  dplyr::arrange(Replicate, Year, FID, Cell, Veg, Age)
 	veg0 <- dplyr::bind_rows(veg0) %>% dplyr::select(Year, VegID, Age, Freq, Replicate) %>%
