@@ -6,7 +6,7 @@ setwd("/workspace/UA/mfleonawicz/projects/randscape/workspaces")
 # Load functions
 source("../code/functions.R")
 
-agg <- TRUE
+agg <- 10 # aggregate from 1 sq. km to agg sq. km
 
 Mode <- function(x, na.rm){
   if(na.rm) x <- x[!is.na(x)]
@@ -35,13 +35,13 @@ r.slope <- readAll(raster("../data/centakslope.tif"))
 r.tden <- readAll(raster("../data/centaktreedensity.tif"))
 projection(r.site) <- projection(b.flam)
 
-if(agg){
-  b.flam <- aggregate(b.flam, 10)
-  r.veg <- aggregate(r.veg, 10, fun=Mode, na.rm=T)
-  r.age <- aggregate(r.age, 10)
-  r.site <- aggregate(r.site, 10)
-  r.slope <- aggregate(r.slope, 10, fun=Mode, na.rm=T)
-  r.tden <- aggregate(r.tden, 10, fun=Mode, na.rm=T)
+if(agg != 1){
+  b.flam <- aggregate(b.flam, agg)
+  r.veg <- aggregate(r.veg, agg, fun=Mode, na.rm=T)
+  r.age <- aggregate(r.age, agg)
+  r.site <- aggregate(r.site, agg)
+  r.slope <- aggregate(r.slope, agg, fun=Mode, na.rm=T)
+  r.tden <- aggregate(r.tden, agg, fun=Mode, na.rm=T)
 }
 
 b.flam <- mask(b.flam, r.veg)
@@ -84,5 +84,5 @@ for(i in 1:length(fire.prob)){
   r.flam.age[ind] <- (k/(1+exp(a-b*r.age[ind])))*r.flam[ind]
 }
 
-file <- "example_inputs.RData"
+file <- paste0("example_inputs_", agg, "km.RData")
 save(b.flam, fire.prob, r.age, r.burn, r.flam, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
