@@ -21,9 +21,19 @@ n <- nlayers(b.flam)
 yrs <- as.numeric(substring(names(b.flam), 11))
 
 system.time({
+  Rprof("/workspace/UA/mfleonawicz/profiling.txt")
+  results <- simulate(1, n.strikes=n.strikes, ignit=ignit, sens=sens,
+    b.flam=subset(b.flam, 1:2), years=yrs[1:2], r.burn=r.burn, r.veg=r.veg.list, r.age=r.age.list, r.spruce.type=r.spruce.list,
+    prob=fire.prob, tr.br=tr.br, ignore.veg=0, keep.maps=TRUE)
+  Rprof()
+})
+summaryRprof("/workspace/UA/mfleonawicz/profiling.txt")
+
+system.time({
   results <- mclapply(1:n.parsim, simulate, n.strikes=n.strikes, ignit=ignit, sens=sens,
-    b.flam=subset(b.flam, 1:3), years=yrs[1:3], r.burn=r.burn, r.veg=r.veg.list, r.age=r.age.list, r.spruce.type=r.spruce.list,
-    prob=fire.prob, tr.br=tr.br, ignore.veg=0, keep.maps=TRUE, mc.cores=n.parsim) })
+    b.flam=b.flam, years=yrs, r.burn=r.burn, r.veg=r.veg.list, r.age=r.age.list, r.spruce.type=r.spruce.list,
+    prob=fire.prob, tr.br=tr.br, ignore.veg=0, keep.maps=TRUE, verbose=FALSE, mc.cores=n.parsim)
+})
 
 fire <- map(results, ~.x$Fire) %>% bind_rows()
 veg <- map(results, ~.x$Veg) %>% bind_rows()
