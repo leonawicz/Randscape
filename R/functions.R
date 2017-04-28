@@ -300,11 +300,12 @@ strike <- function(n.sim, n.strikes, index, ignit){
 ignite <- function(x, s, r) x[s < r[x]] # x=location, s=lightning intensity, r=vegetation flammability
 
 # Multiple simulation replicates
-simulate <- function(par.iter, prob, Maps=F, simMaps, r.spruce.type, r.age, r.veg, b.flam, verbose=TRUE, ...){
+simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.veg, b.flam, years=NULL, verbose=TRUE, ...){
 	r.spruce.type <- r.spruce.type[[par.iter]]
 	r.age <- r.age[[par.iter]]
 	r.veg <- r.veg[[par.iter]]
 	veg0.ind <- which(r.veg[[1]][]==0)
+	uni.veg <- sort(unique( r.veg[[1]][!is.na(r.veg[[1]])] ))
 	ignore.veg <- list(...)$ignore.veg
 	n.strikes <- list(...)$n.strikes
 	ignit <- list(...)$ignit
@@ -312,12 +313,18 @@ simulate <- function(par.iter, prob, Maps=F, simMaps, r.spruce.type, r.age, r.ve
 	index <- which(!is.na(subset(b.flam, 1)[])) # all layers have same data vs NA cell indices
 	n.yrs <- nlayers(b.flam)
 	n.sim <- length(r.age)
-	if(missing(simMaps)) simMaps <- 1:n.sim
-	cells.burned.list <- n.fires.list <- fs.list <- tba.list <- vector("list", n.yrs)
-	r.age.list <- r.veg.list <- vector("list", n.yrs)
+	if(is.logical(keep.maps)){
+	  keep.maps <- if(keep.maps) 1:n.sim else NULL
+	} else if(is.numeric(keep.maps)){
+	  if(any(!keep.maps %in% 1:n.sim))
+	    stop("If 'keep.maps' is numeric, it must contain integers in 1:n.sim.")
+	  keep.maps <- sort(unique(keep.maps))
+	}
+	cells.burned0 <- veg0 <- r.age.list <- r.veg.list <- vector("list", n.yrs)
+	years <- if(!is.null(years) && length(years)==n.yrs) years else 1:n.yrs
+	names(cells.burned0) <- names(r.age.list) <- names(r.veg.list) <- years
 
 	for(z in 1:n.yrs){
-	print(z)
 		r.flam <- subset(b.flam, z)
 		r.flam[veg0.ind] <- 0 # Why are there postive flammablity probabilies in the flammability maps where veg ID is 0?
 		strikes <- strike(n.sim, n.strikes, index, ignit)
@@ -332,33 +339,46 @@ simulate <- function(par.iter, prob, Maps=F, simMaps, r.spruce.type, r.age, r.ve
 		if(verbose) cat("Obtained list of vegetation flammability vectors.\n")
 
 		n.fires <- lapply(ig.pts, length)  # store the total number of fires by sim
-		fs <- cells.burned <- tba <- vector("list", n.sim)
+	  cells.burned <- veg <- vector("list", n.sim)
+		base.reps <- (par.iter - 1)*n.sim
+
 		for(i in 1:n.sim){
+		  rep.i <- as.integer(base.reps + i)
+		  # fire
 		  v.flam.tmp <- v.flam[[i]]
-		  cells.burned.tmp <- vector("list", n.fires[[i]])
+		  cells <- vector("list", n.fires[[i]])
 		  for(j in 1:n.fires[[i]]){
-		    cells.burned.tmp[[j]] <- spread(x=ig.pts[[i]][j], v=v.flam.tmp, ...)
-		    v.flam.tmp[cells.burned.tmp[[j]]$Cell] <- 0
+		    cells[[j]] <- spread(x=ig.pts[[i]][j], v=v.flam.tmp, ...)
+		    v.flam.tmp[cells[[j]]$Cell] <- 0
 		  }
-		  fs[[i]] <- sapply(cells.burned.tmp, length) # store the fire sizes by sim
-		  tba[[i]] <- sum(fs[[i]]) # store the total burn area by sim
-		  cells.burned[[i]] <- dplyr::bind_rows(cells.burned.tmp) # store the cells burned by sim
+		  cells <- dplyr::bind_rows(cells) %>% dplyr::mutate(Year=years[z], Replicate=rep.i) # store the cells burned by sim
+		  cells.burned[[i]] <- dplyr::mutate(cells,
+		                                     Veg=as.integer(r.veg[[i]][cells$Cell]),
+		                                     Age=as.integer(r.age[[i]][cells$Cell])) # veg and age at time of burn
+		  # veg area and age
+		  veg[[i]] <- purrr::map(uni.veg,
+		    ~raster::freq(raster::mask(r.age[[i]], raster::Which(r.veg[[i]]==.x), maskvalue=FALSE), useNA="no") %>%
+		      data.frame %>% dplyr::tbl_df() %>% dplyr::rename(Age=value, Freq=count) %>%
+		      dplyr::mutate(Year=years[z], VegID=as.integer(.x), Age=as.integer(Age), Freq=as.integer(Freq), Replicate=rep.i)
+		  ) %>% dplyr::bind_rows()
 		}
 
+		cells.burned0[[z]] <- dplyr::bind_rows(cells.burned)
+		veg0[[z]] <- dplyr::bind_rows(veg)
+		if(is.numeric(keep.maps)){ # store age and veg maps from start of year (prior to fire, succession and colonization)
+		  r.age.list[[z]] <- r.age[keep.maps]
+		  r.veg.list[[z]] <- r.veg[keep.maps]
+		}
 		if(verbose) cat("Completed fire spread.\n")
 		r.age <- purrr::map(1:n.sim, ~updateAge(r.age[[.x]], cells.burned[[.x]]))
 		if(verbose) cat("Updated vegetation ages.\n")
 		r.veg <- purrr::map(1:n.sim, ~updateVeg(r.veg[[.x]], r.spruce.type[[.x]], r.age[[.x]], cells.burned[[.x]]))
 		if(verbose) cat("Updated vegetation types.\n")
-		cells.burned.list[[z]] <- cells.burned
-		n.fires.list[[z]] <- n.fires
-		fs.list[[z]] <- fs
-		tba.list[[z]] <- tba
-		if(Maps){ r.age.list[[z]] <- r.age[simMaps]; r.veg.list[[z]] <- r.veg[simMaps] }
 	}
 
-	list(
-	  CellsBurned=cells.burned.list, N=n.fires.list, FS=fs.list, TBA=tba.list,
-    AgeByRep=r.age.list[simMaps], VegByRep=r.veg.list[simMaps]
-  )
+	cells.burned0 <- dplyr::bind_rows(cells.burned0) %>% select(Year, FID, Cell, Veg, Age, Replicate) %>%
+	  dplyr::arrange(Replicate, Year, FID, Cell, Veg, Age)
+	veg0 <- dplyr::bind_rows(veg0) %>% dplyr::select(Year, VegID, Age, Freq, Replicate) %>%
+	  dplyr::arrange(Replicate, Year, VegID, Age)
+	list(Fire=cells.burned0, Veg=veg0, AgeByRep=r.age.list, VegByRep=r.veg.list)
 }
