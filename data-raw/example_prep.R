@@ -7,6 +7,7 @@ setwd("/workspace/UA/mfleonawicz/projects/randscape/workspaces")
 source("../code/functions.R")
 
 agg <- 10 # aggregate from 1 sq. km to agg sq. km
+use_files <- TRUE # flammability maps year by year via raster files from disk vs. brick in memory
 
 Mode <- function(x, na.rm){
   if(na.rm) x <- x[!is.na(x)]
@@ -85,4 +86,13 @@ for(i in 1:length(fire.prob)){
 }
 
 file <- paste0("example_inputs_", agg, "km.RData")
-save(b.flam, fire.prob, r.age, r.burn, r.flam, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
+if(use_files){
+  library(parallel)
+  dir.create(outDir <- paste0("../data/flam", agg, "km"), recursive=TRUE, showWarnings=FALSE)
+  x <- mclapply(1:nlayers(b.flam), function(i, x, outDir, files){
+    writeRaster(subset(x, i), file.path(outDir, files[i]), datatype="FLT4S",overwrite=T)
+    }, x=b.flam, outDir=outDir, files=basename(flam.files), mc.cores=32)
+  save(fire.prob, r.age, r.burn, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
+} else {
+  save(b.flam, fire.prob, r.age, r.burn, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
+}

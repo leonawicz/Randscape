@@ -1,11 +1,13 @@
 # Still need to incorporate:
-# lightning density maps
+# lightning density maps (as separate input option) (however, these are built into the current flammability maps)
+# Supression efforts (spread sensitivity) map
 # historical observed fire perimeters
-# weaken spread by vegetation class
-# ignition/sensitivity by vegetation class
+# weaken spread by vegetation class? ignition/sensitivity by vegetation class? (these should flow naturally from clim/veg flamm maps)
 # site? slope? tree density? what are these and how should they affect burning
 # how to deal with deciduous?
 # vegetation transition rules
+# modify spread probability based on number of surrounding pixels already burned
+
 
 #' Set spruce types
 #'
@@ -300,19 +302,29 @@ strike <- function(n.sim, n.strikes, index, ignit){
 ignite <- function(x, s, r) x[s < r[x]] # x=location, s=lightning intensity, r=vegetation flammability
 
 # Multiple simulation replicates
-simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.veg, b.flam, years=NULL, verbose=TRUE, ...){
+simulate <- function(inputs, prob, keep.maps=FALSE, b.flam, years=NULL, verbose=TRUE, ...){
+  par.iter <- inputs$iter
+  r.spruce.type <- inputs$Spruce
+  r.age <- inputs$Age
+  r.veg <- inputs$Veg
   verbose <- verbose & par.iter==1
-	r.spruce.type <- r.spruce.type[[par.iter]]
-	r.age <- r.age[[par.iter]]
-	r.veg <- r.veg[[par.iter]]
 	veg0.ind <- which(r.veg[[1]][]==0)
 	uni.veg <- sort(unique( r.veg[[1]][!is.na(r.veg[[1]])] ))
 	ignore.veg <- list(...)$ignore.veg
 	n.strikes <- list(...)$n.strikes
 	ignit <- list(...)$ignit
 	sens <- list(...)$sens
-	index <- which(!is.na(subset(b.flam, 1)[])) # all layers have same data vs NA cell indices
-	n.yrs <- nlayers(b.flam)
+	use_files <- if(class(b.flam)=="raster") FALSE else TRUE
+
+	if(use_files){
+	  r.flam <- raster(b.flam[1])
+	  n.yrs <- length(b.flam)
+	} else {
+	  r.flam <- subset(b.flam, 1)
+	  n.yrs <- nlayers(b.flam)
+	}
+	index <- which(!is.na(r.flam[])) # all layers have same data vs NA cell indices
+
 	n.sim <- length(r.age)
 	if(is.logical(keep.maps)){
 	  keep.maps <- if(keep.maps) 1:n.sim else NULL
@@ -327,7 +339,7 @@ simulate <- function(par.iter, prob, keep.maps=FALSE, r.spruce.type, r.age, r.ve
 
 	for(z in 1:n.yrs){
 	  if(par.iter==1) cat(paste("Simulation year:", years[z], "...\n"))
-		r.flam <- subset(b.flam, z)
+		r.flam <- if(use_files) raster(b.flam[z]) else subset(b.flam, z)
 		r.flam[veg0.ind] <- 0 # Why are there postive flammablity probabilies in the flammability maps where veg ID is 0?
 		strikes <- strike(n.sim, n.strikes, index, ignit)
 		if(verbose) cat("Completed lightning strikes on landscape.\n")
