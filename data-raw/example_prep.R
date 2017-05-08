@@ -35,6 +35,7 @@ r.site <- readAll(raster("../data/centaksite.tif"))
 r.slope <- readAll(raster("../data/centakslope.tif"))
 r.tden <- readAll(raster("../data/centaktreedensity.tif"))
 projection(r.site) <- projection(b.flam)
+fire.obs <- readAll(brick("../data/firescarbrick_annual_observed_Statewide_lightning_1950_2013.tif"))
 
 if(agg != 1){
   b.flam <- aggregate(b.flam, agg)
@@ -43,6 +44,7 @@ if(agg != 1){
   r.site <- aggregate(r.site, agg)
   r.slope <- aggregate(r.slope, agg, fun=Mode, na.rm=T)
   r.tden <- aggregate(r.tden, agg, fun=Mode, na.rm=T)
+  fire.obs <- aggregate(fire.obs, agg, fun=Mode, na.rm=T)
 }
 
 b.flam <- mask(b.flam, r.veg)
@@ -92,7 +94,7 @@ if(use_files){
   x <- mclapply(1:nlayers(b.flam), function(i, x, outDir, files){
     writeRaster(subset(x, i), file.path(outDir, files[i]), datatype="FLT4S",overwrite=T)
     }, x=b.flam, outDir=outDir, files=basename(flam.files), mc.cores=32)
-  save(fire.prob, r.age, r.burn, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
+  save(fire.obs, fire.prob, r.age, r.burn, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
 } else {
-  save(b.flam, fire.prob, r.age, r.burn, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
+  save(b.flam, fire.obs, fire.prob, r.age, r.burn, r.site, r.slope, r.spruce, r.tden, r.veg, tr.br, yrs, file=file)
 }
