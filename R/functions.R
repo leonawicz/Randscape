@@ -82,7 +82,7 @@ setSpruceTypes <- function(k, n, r, slope, aspect,
 #'
 #' @examples
 #' # not run
-spread <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j=1, weaken=TRUE, ...){
+spread <- function(x, x.hold=x, xid=1:length(x), xid.hold=xid, sens, v, tr.br, j=1, weaken=FALSE, ...){
   if(!length(x)) return(x)
   #if(sens > 1) stop("sens cannot exceed 1.")
   #print(paste("Recursion level:", j))
@@ -187,7 +187,7 @@ flamByAge <- function(r.flam, r.veg, r.age, prob, ignore.veg=0){
 #' # not run
 updateAge <- function(r.age, cells.burned){
   r.age <- r.age + 1
-  if(length(cells.burned)) r.age[cells.burned$Cell] <- 0
+  if(!any(is.na(cells.burned))) r.age[cells.burned$Cell] <- 0
   r.age
 }
 
@@ -236,14 +236,23 @@ updateVeg <- function(r.veg, r.spruce, r.age, cells.burned,
                            ws.pars=c(1, 10, 0.25),
                            gram.pars=c(1, 15, 0.25),
                            bwdsg=c(2, 3, 4, 5, 6)){
-  i <- cells.burned$Cell
+  anyburn <- !any(is.na(cells.burned$Cell))
+  i <- if(anyburn) cells.burned$Cell else NULL
   # Burn transition
-  v0 <- r.veg[i]
-  r.veg[i] <- as.integer(unlist(trans.burn[v0]))
+  if(anyburn){
+    v0 <- r.veg[i]
+    r.veg[i] <- as.integer(unlist(trans.burn[v0]))
+  }
   # Succession
-  v1 <- r.veg[-i]
-  spr <- r.spruce[-i]
-  a1 <- r.age[-i]
+  if(anyburn){
+    v1 <-  r.veg[-i]
+    spr <- r.spruce[-i]
+    a1 <- r.age[-i]
+  } else {
+    v1 <-  r.veg[]
+    spr <- r.spruce[]
+    a1 <- r.age[]
+  }
   succession <- function(age, p) p[1]/(1+exp(p[2]-p[3]*age)) > runif(length(age))
   bs.ind <- v1==bwdsg[3] & spr==bwdsg[1]
   ws.ind <- v1==bwdsg[3] & spr==bwdsg[2]
@@ -251,7 +260,7 @@ updateVeg <- function(r.veg, r.spruce, r.age, cells.burned,
   v1[bs.ind & succession(age=a1[bs.ind], p=bs.pars)] <- bwdsg[1]
   v1[ws.ind & succession(age=a1[ws.ind], p=ws.pars)] <- bwdsg[2]
   v1[gram.ind & succession(age=a1[gram.ind], p=gram.pars)] <- bwdsg[4]
-  r.veg[-i] <- v1
+  if(anyburn) r.veg[-i] <- v1 else r.veg[] <- v1
   # Colonization
   # Establish conditions for colonization
   r.veg
@@ -346,7 +355,7 @@ simulate <- function(inputs, prob, keep.maps=FALSE, b.flam, years=NULL, verbose=
 		r.flam <- purrr::map(1:n.sim, ~flamByAge(r.flam, r.veg[[.x]], r.age[[.x]], prob=prob, ignore.veg=ignore.veg))
 		if(verbose) cat("Completed adjustment of climate- and vegetation-mediated flammability by vegetation age.\n")
 		ig.pts <- purrr::map(1:n.sim, ~ignite(x=strikes$cells[[.x]], s=strikes$intensity[[.x]], r=r.flam[[.x]]))
-		if(!length(ig.pts[[1]])) next
+		#if(!length(ig.pts[[1]])) next
 
 		if(verbose) cat("Completed ignitions on landscape.\n")
 		v.flam <- rapply(r.flam, getValues, how="replace")
@@ -358,17 +367,21 @@ simulate <- function(inputs, prob, keep.maps=FALSE, b.flam, years=NULL, verbose=
 
 		for(i in 1:n.sim){
 		  rep.i <- as.integer(base.reps + i)
-		  # fire
 		  v.flam.tmp <- v.flam[[i]]
-		  cells <- vector("list", n.fires[[i]])
-		  for(j in 1:n.fires[[i]]){
-		    cells[[j]] <- spread(x=ig.pts[[i]][j], v=v.flam.tmp, ...)
-		    v.flam.tmp[cells[[j]]$Cell] <- 0
+		  # fire
+		  if(n.fires[[i]]==0){
+		    cells.burned[[i]] <- dplyr::tbl_df(data.frame(Cell=NA, FID=NA, Year=years[z], Replicate=rep.i, Veg=NA, Age=NA)) # no cells burned
+		  } else {
+  		  cells <- vector("list", n.fires[[i]])
+  		  for(j in 1:n.fires[[i]]){
+  		    cells[[j]] <- spread(x=ig.pts[[i]][j], v=v.flam.tmp, ...)
+  		    v.flam.tmp[cells[[j]]$Cell] <- 0
+  		  }
+  		  cells <- dplyr::bind_rows(cells) %>% dplyr::mutate(Year=years[z], Replicate=rep.i) # store the cells burned by sim
+  		  cells.burned[[i]] <- dplyr::mutate(cells,
+  		                                     Veg=as.integer(r.veg[[i]][cells$Cell]),
+  		                                     Age=as.integer(r.age[[i]][cells$Cell])) # veg and age at time of burn
 		  }
-		  cells <- dplyr::bind_rows(cells) %>% dplyr::mutate(Year=years[z], Replicate=rep.i) # store the cells burned by sim
-		  cells.burned[[i]] <- dplyr::mutate(cells,
-		                                     Veg=as.integer(r.veg[[i]][cells$Cell]),
-		                                     Age=as.integer(r.age[[i]][cells$Cell])) # veg and age at time of burn
 		  # veg area and age
 		  veg[[i]] <- data.frame(Year=years[z], VegID=as.integer(r.veg[[i]][]), Age=as.integer(r.age[[i]][]), Replicate=rep.i) %>%
 		    dplyr::tbl_df() %>% dplyr::filter(!is.na(VegID)) %>% dplyr::group_by(Replicate, Year, VegID, Age) %>%
